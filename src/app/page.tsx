@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
+import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 import { format, parseISO } from 'date-fns';
 import { 
   Trash2, Home, Utensils, Car, Zap, Shield, Activity, 
@@ -73,6 +74,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    // The async fetch updates state after the request completes; the lint rule flags the call site here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTransactions();
   }, []);
 
@@ -405,7 +408,10 @@ export default function Dashboard() {
                       />
                       <Tooltip 
                         contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                        formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                        formatter={(value: ValueType | undefined, name: NameType | undefined) => {
+                          const resolvedValue = Array.isArray(value) ? value[0] ?? 0 : value ?? 0;
+                          return [formatCurrency(Number(resolvedValue) || 0), name ?? ''];
+                        }}
                       />
                       <Area type="monotone" dataKey="income" name="Income" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorIncome)" />
                       <Area type="monotone" dataKey="expense" name="Expense" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorExpense)" />
@@ -443,7 +449,10 @@ export default function Dashboard() {
                         ))}
                       </Pie>
                       <Tooltip 
-                        formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                        formatter={(value: ValueType | undefined, name: NameType | undefined) => {
+                          const resolvedValue = Array.isArray(value) ? value[0] ?? 0 : value ?? 0;
+                          return [formatCurrency(Number(resolvedValue) || 0), name ?? ''];
+                        }}
                         contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                       />
                       <Legend 
