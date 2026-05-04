@@ -1,11 +1,24 @@
-import mongoose from 'mongoose';
+import mongoose, { type Mongoose } from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://FILESTORECLONE:FILESTORECLONE@dynamic.lzu6mpy.mongodb.net/?appName=Dynamic";
+function getMongoUri(): string {
+  const uri = process.env.MONGODB_URI;
 
-if (!MONGODB_URI) {
-  throw new Error(
-    'Please define the MONGODB_URI environment variable inside .env.local'
-  );
+  if (!uri) {
+    throw new Error(
+      'Please define the MONGODB_URI environment variable inside .env.local'
+    );
+  }
+
+  return uri;
+}
+
+type MongooseCache = {
+  conn: Mongoose | null;
+  promise: Promise<Mongoose> | null;
+};
+
+declare global {
+  var mongooseCache: MongooseCache | undefined;
 }
 
 /**
@@ -13,13 +26,11 @@ if (!MONGODB_URI) {
  * in development. This prevents connections growing exponentially
  * during API Route usage.
  */
-let cached = (global as any).mongoose;
+const cached = globalThis.mongooseCache ?? (globalThis.mongooseCache = { conn: null, promise: null });
 
-if (!cached) {
-  cached = (global as any).mongoose = { conn: null, promise: null };
-}
+async function connectToDatabase(): Promise<Mongoose> {
+  const mongoUri = getMongoUri();
 
-async function connectToDatabase() {
   if (cached.conn) {
     return cached.conn;
   }
@@ -29,7 +40,7 @@ async function connectToDatabase() {
       bufferCommands: false,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
+    cached.promise = mongoose.connect(mongoUri, opts).then((mongoose) => {
       return mongoose;
     });
   }

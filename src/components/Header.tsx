@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { User, Database, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Database, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 export default function Header() {
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');
@@ -12,14 +12,14 @@ export default function Header() {
     // We can ping the health check or the transactions endpoint just to verify
     const checkDb = async () => {
       try {
-        const res = await fetch('/api/transactions?limit=1');
+        const res = await fetch('/api/health');
         const data = await res.json();
-        if (data.success || res.ok) {
+        if (res.ok && data.success) {
           setDbStatus('connected');
         } else {
           setDbStatus('error');
         }
-      } catch (error) {
+      } catch {
         setDbStatus('error');
       }
     };
@@ -38,6 +38,7 @@ export default function Header() {
               src="/logo.png" 
               alt="FinTrack Logo" 
               fill
+              sizes="40px"
               className="object-cover"
               priority
             />
@@ -82,7 +83,7 @@ export default function Header() {
               </span>
             </div>
 
-            {/* Tooltip / Poup */}
+            {/* Tooltip / Popup */}
             {showTooltip && (
               <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-xl shadow-lg border border-gray-100 p-4 z-50 animate-in slide-in-from-top-2">
                 <div className="flex items-start gap-3">

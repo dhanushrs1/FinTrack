@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 import { format, parseISO } from 'date-fns';
@@ -9,7 +9,8 @@ import {
   PiggyBank, ShoppingBag, Film, Wallet, Briefcase, 
   TrendingUp, MoreHorizontal, ArrowUpRight, ArrowDownRight, 
   IndianRupee, Calendar, Filter, ChevronLeft, ChevronRight,
-  ArrowRightLeft, PieChart as PieChartIcon, PlusSquare
+  ArrowRightLeft, PieChart as PieChartIcon, PlusSquare,
+  Mail, User, KeyRound, LogOut, Sparkles, CheckCircle2
 } from 'lucide-react';
 
 type Transaction = {
@@ -37,10 +38,63 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
 const COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#ef4444', '#f97316', '#f59e0b', '#eab308', '#22c55e', '#10b981', '#14b8a6', '#0ea5e9'];
 
 type TabView = 'home' | 'add' | 'activity' | 'stats';
+type AuthMode = 'login' | 'register';
+
+type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  avatarColor: string;
+};
+
+const GUIDE_SLIDES = [
+  {
+    icon: Wallet,
+    title: 'Track money without mixing lives',
+    body: 'FinTrack keeps income, spending, and balance in one private workspace.',
+    pills: ['Income', 'Expenses', 'INR ready'],
+  },
+  {
+    icon: PieChartIcon,
+    title: 'See what changed at a glance',
+    body: 'Charts turn daily entries into trends, category splits, and quick decisions.',
+    pills: ['Cashflow', 'Categories', 'History'],
+  },
+  {
+    icon: Shield,
+    title: 'Your records belong to your account',
+    body: 'Every transaction is attached to the signed-in user before it reaches MongoDB.',
+    pills: ['Private vault', 'Signed session', 'User scoped'],
+  },
+  {
+    icon: Activity,
+    title: 'Use it like a pocket finance app',
+    body: 'Add from mobile, review history, and keep cloud data separated from other users.',
+    pills: ['Mobile tabs', 'Cloud sync', 'Quick add'],
+  },
+];
+
+const VAULT_WORDS = [
+  'mint', 'ledger', 'river', 'lotus', 'orbit', 'rupee', 'summit', 'pixel',
+  'harbor', 'copper', 'velvet', 'budget', 'monsoon', 'spark', 'anchor', 'citrus',
+];
+
+const AVATAR_COLORS = ['#4f46e5', '#0f766e', '#db2777', '#ea580c', '#2563eb', '#16a34a'];
 
 export default function Dashboard() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [guideComplete, setGuideComplete] = useState(false);
+  const [guideIndex, setGuideIndex] = useState(0);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [vaultKey, setVaultKey] = useState('');
+  const [avatarColor, setAvatarColor] = useState(AVATAR_COLORS[0]);
+  const [authError, setAuthError] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   
   // Mobile Tab State
   const [activeTab, setActiveTab] = useState<TabView>('home');
@@ -59,31 +113,66 @@ export default function Dashboard() {
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const itemsPerPage = 5;
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     try {
       const res = await fetch('/api/transactions');
       const data = await res.json();
       if (data.success) {
         setTransactions(data.data);
+      } else if (res.status === 401) {
+        setAuthUser(null);
+        setTransactions([]);
       }
     } catch (error) {
       console.error('Failed to fetch transactions', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // The async fetch updates state after the request completes; the lint rule flags the call site here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchTransactions();
+    const bootstrap = async () => {
+      setGuideComplete(window.localStorage.getItem('fintrack_guide_complete') === 'true');
+
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setLoading(true);
+          setAuthUser(data.user);
+        }
+      } catch (error) {
+        console.error('Failed to restore session', error);
+      } finally {
+        setCheckingSession(false);
+      }
+    };
+
+    bootstrap();
   }, []);
+
+  useEffect(() => {
+    if (authUser) {
+      // The request resolves asynchronously before transaction state is updated.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchTransactions();
+      return;
+    }
+
+    setTransactions([]);
+    setLoading(false);
+  }, [authUser, fetchTransactions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || !category) return;
     
     const numAmount = Number(amount);
+    if (!Number.isFinite(numAmount) || numAmount <= 0) {
+      alert('Please enter an amount greater than zero.');
+      return;
+    }
+
     if (numAmount > 1000000) {
       alert(`An amount of ${formatCurrency(numAmount)} seems too high for personal ${category.toLowerCase()}. Please enter a realistic amount under ₹10,00,000.`);
       return;
@@ -96,7 +185,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: title || category, 
-          amount: Number(amount),
+          amount: numAmount,
           type,
           category,
           date: new Date(date).toISOString(),
@@ -105,7 +194,7 @@ export default function Dashboard() {
 
       const data = await res.json();
       if (data.success) {
-        setTransactions([data.data, ...transactions]);
+        setTransactions((current) => [data.data, ...current]);
         setTitle('');
         setAmount('');
         setDate(new Date().toISOString().substring(0, 10));
@@ -127,10 +216,69 @@ export default function Dashboard() {
       const res = await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
-        setTransactions(transactions.filter(t => t._id !== id));
+        setTransactions((current) => current.filter(t => t._id !== id));
       }
     } catch (error) {
       console.error('Failed to delete transaction', error);
+    }
+  };
+
+  const generateVaultKey = () => {
+    const values = new Uint32Array(4);
+    window.crypto.getRandomValues(values);
+    const words = Array.from(values, (value) => VAULT_WORDS[value % VAULT_WORDS.length]);
+    setVaultKey(words.join('-'));
+    setAuthError('');
+  };
+
+  const completeGuide = () => {
+    window.localStorage.setItem('fintrack_guide_complete', 'true');
+    setGuideComplete(true);
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSubmitting(true);
+
+    try {
+      const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const payload = authMode === 'login'
+        ? { email: authEmail, vaultKey }
+        : { name: authName, email: authEmail, vaultKey, avatarColor };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setAuthError(data.error || 'Could not open your vault');
+        return;
+      }
+
+      setLoading(true);
+      setAuthUser(data.user);
+      setAuthName('');
+      setVaultKey('');
+      setActiveTab('home');
+    } catch (error) {
+      console.error('Failed to authenticate', error);
+      setAuthError('Could not reach the server. Please try again.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      setAuthUser(null);
+      setTransactions([]);
+      setActiveTab('home');
+      setLoading(false);
     }
   };
 
@@ -173,9 +321,246 @@ export default function Dashboard() {
 
   const filteredTransactions = transactions.filter(t => filterType === 'all' || t.type === filterType);
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const visiblePage = totalPages > 0 ? Math.min(currentPage, totalPages) : 1;
   const paginatedTransactions = filteredTransactions.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    (visiblePage - 1) * itemsPerPage,
+    visiblePage * itemsPerPage
+  );
+
+  const currentGuide = GUIDE_SLIDES[guideIndex];
+  const GuideIcon = currentGuide.icon;
+  const isLastGuide = guideIndex === GUIDE_SLIDES.length - 1;
+
+  if (checkingSession) return (
+    <div className="flex h-[80vh] items-center justify-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+    </div>
+  );
+
+  if (!guideComplete) return (
+    <div className="min-h-[78vh] grid place-items-center py-8">
+      <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-8 items-center">
+        <section className="space-y-8">
+          <div className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700">
+            <Sparkles size={16} />
+            FinTrack private guide
+          </div>
+
+          <div className="space-y-4">
+            <h1 className="text-4xl md:text-6xl font-extrabold text-gray-950 leading-tight">
+              {currentGuide.title}
+            </h1>
+            <p className="text-base md:text-lg text-gray-600 max-w-2xl leading-8">
+              {currentGuide.body}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {currentGuide.pills.map((pill) => (
+              <span key={pill} className="rounded-full bg-white border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm">
+                {pill}
+              </span>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => isLastGuide ? completeGuide() : setGuideIndex((index) => index + 1)}
+              className="inline-flex items-center gap-2 rounded-[5px] bg-indigo-600 px-5 py-3 text-sm font-bold text-white border-b-[4px] border-indigo-900 hover:bg-indigo-500 active:border-b-0 active:translate-y-[4px] transition-all"
+            >
+              {isLastGuide ? 'Open Login' : 'Next'}
+              <ChevronRight size={18} />
+            </button>
+            {guideIndex > 0 && (
+              <button
+                type="button"
+                onClick={() => setGuideIndex((index) => Math.max(0, index - 1))}
+                className="inline-flex items-center gap-2 rounded-[5px] border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all"
+              >
+                <ChevronLeft size={18} />
+                Back
+              </button>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            {GUIDE_SLIDES.map((slide, index) => (
+              <button
+                key={slide.title}
+                type="button"
+                aria-label={`Go to guide slide ${index + 1}`}
+                onClick={() => setGuideIndex(index)}
+                className={`h-2.5 rounded-full transition-all ${index === guideIndex ? 'w-10 bg-indigo-600' : 'w-2.5 bg-gray-300 hover:bg-gray-400'}`}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="relative overflow-hidden rounded-[5px] border border-gray-100 bg-white p-8 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+          <div className="absolute right-0 top-0 h-32 w-32 bg-emerald-50"></div>
+          <div className="relative space-y-8">
+            <div className="h-20 w-20 rounded-[5px] bg-gray-950 text-white flex items-center justify-center shadow-[0_10px_30px_rgba(17,24,39,0.18)]">
+              <GuideIcon size={38} strokeWidth={2.4} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-[5px] border border-gray-100 bg-gray-50 p-4">
+                <p className="text-xs font-bold uppercase text-gray-500">Balance</p>
+                <p className="text-2xl font-extrabold text-gray-950 mt-2">₹48k</p>
+              </div>
+              <div className="rounded-[5px] border border-gray-100 bg-gray-50 p-4">
+                <p className="text-xs font-bold uppercase text-gray-500">Private</p>
+                <p className="text-2xl font-extrabold text-emerald-600 mt-2">On</p>
+              </div>
+              <div className="col-span-2 rounded-[5px] border border-indigo-100 bg-indigo-50 p-4">
+                <div className="flex items-center gap-3">
+                  <Shield size={22} className="text-indigo-700" />
+                  <p className="text-sm font-bold text-indigo-900">Records are filtered by the signed-in user before MongoDB returns them.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+
+  if (!authUser) return (
+    <div className="min-h-[78vh] grid place-items-center py-8">
+      <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-8 items-stretch">
+        <section className="bg-gray-950 text-white rounded-[5px] p-8 md:p-10 flex flex-col justify-between overflow-hidden relative">
+          <div className="absolute right-0 top-0 h-40 w-40 bg-indigo-600/25"></div>
+          <div className="relative space-y-8">
+            <div className="h-14 w-14 rounded-[5px] bg-white text-gray-950 flex items-center justify-center">
+              <KeyRound size={28} />
+            </div>
+            <div>
+              <h1 className="text-3xl md:text-5xl font-extrabold leading-tight">Open your private finance vault</h1>
+              <p className="mt-4 text-gray-300 leading-7">
+                Use an email plus a memorable Vault Key phrase. The phrase is hashed on the server, and your browser receives a signed httpOnly session.
+              </p>
+            </div>
+          </div>
+
+          <div className="relative mt-10 grid gap-3">
+            {['No shared transaction feed', 'MongoDB queries are user-scoped', 'Logout clears the signed session'].map((item) => (
+              <div key={item} className="flex items-center gap-3 text-sm font-semibold text-gray-200">
+                <CheckCircle2 size={18} className="text-emerald-400" />
+                {item}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="bg-white rounded-[5px] border border-gray-100 shadow-[0_20px_60px_rgba(15,23,42,0.08)] p-6 md:p-8">
+          <div className="bg-gray-50 p-1.5 rounded-[5px] flex shadow-inner border border-gray-100 mb-8">
+            <button
+              type="button"
+              onClick={() => { setAuthMode('login'); setAuthError(''); }}
+              className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-[5px] transition-all ${authMode === 'login' ? 'bg-white text-indigo-700 shadow-sm border-b-2 border-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthMode('register'); setAuthError(''); }}
+              className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-[5px] transition-all ${authMode === 'register' ? 'bg-white text-indigo-700 shadow-sm border-b-2 border-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Create Vault
+            </button>
+          </div>
+
+          <form onSubmit={handleAuthSubmit} className="space-y-5">
+            {authMode === 'register' && (
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Your Name</label>
+                <div className="relative">
+                  <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    required
+                    value={authName}
+                    onChange={(e) => setAuthName(e.target.value)}
+                    className="block w-full pl-12 pr-4 py-3 bg-white border-2 border-gray-100 rounded-[5px] text-gray-900 font-semibold focus:ring-0 focus:border-indigo-400 transition-all shadow-inner"
+                    placeholder="Dhanush"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Email</label>
+              <div className="relative">
+                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="email"
+                  required
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  className="block w-full pl-12 pr-4 py-3 bg-white border-2 border-gray-100 rounded-[5px] text-gray-900 font-semibold focus:ring-0 focus:border-indigo-400 transition-all shadow-inner"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between gap-3 items-center mb-2">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Vault Key</label>
+                {authMode === 'register' && (
+                  <button type="button" onClick={generateVaultKey} className="text-xs font-bold text-indigo-600 hover:text-indigo-500">
+                    Generate phrase
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <KeyRound size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  required
+                  minLength={12}
+                  value={vaultKey}
+                  onChange={(e) => setVaultKey(e.target.value)}
+                  className="block w-full pl-12 pr-4 py-3 bg-white border-2 border-gray-100 rounded-[5px] text-gray-900 font-semibold focus:ring-0 focus:border-indigo-400 transition-all shadow-inner"
+                  placeholder="mint-ledger-river-lotus"
+                />
+              </div>
+            </div>
+
+            {authMode === 'register' && (
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Vault Color</label>
+                <div className="flex gap-2">
+                  {AVATAR_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setAvatarColor(color)}
+                      className={`h-10 w-10 rounded-full border-2 transition-all ${avatarColor === color ? 'border-gray-950 scale-105' : 'border-white shadow-[0_0_0_1px_rgba(229,231,235,1)]'}`}
+                      style={{ backgroundColor: color }}
+                      aria-label={`Choose ${color} as vault color`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {authError && (
+              <div className="rounded-[5px] border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={authSubmitting}
+              className="w-full py-3.5 px-4 rounded-[5px] text-sm font-bold text-white bg-indigo-600 border-b-[4px] border-indigo-900 active:border-b-0 active:translate-y-[4px] hover:bg-indigo-500 focus:outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed shadow-[0_0_10px_rgba(79,70,229,0.2)]"
+            >
+              {authSubmitting ? 'Opening...' : authMode === 'login' ? 'Open Vault' : 'Create Private Vault'}
+            </button>
+          </form>
+        </section>
+      </div>
+    </div>
   );
 
   if (loading) return (
@@ -186,6 +571,28 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 pb-24 md:pb-10 relative">
+      <div className="bg-white rounded-[5px] border border-gray-100 shadow-[0_4px_10px_rgba(0,0,0,0.03)] px-4 py-3 md:px-6 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="h-11 w-11 rounded-[5px] flex items-center justify-center text-white font-extrabold shrink-0"
+            style={{ backgroundColor: authUser.avatarColor }}
+          >
+            {authUser.name.substring(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-extrabold text-gray-950 truncate">{authUser.name}&apos;s Vault</p>
+            <p className="text-xs font-semibold text-gray-500 truncate">{authUser.email}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="inline-flex items-center gap-2 rounded-[5px] border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition-all shrink-0"
+        >
+          <LogOut size={16} />
+          Logout
+        </button>
+      </div>
       
       {/* Header Summary Cards - Visible on 'home' mobile tab, or always on desktop */}
       <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-all ${activeTab === 'home' ? 'block' : 'hidden md:grid'}`}>
@@ -378,8 +785,14 @@ export default function Dashboard() {
               </h2>
               
               {timeSeriesData.length > 0 ? (
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div className="h-64 w-full min-w-0">
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    minWidth={0}
+                    minHeight={256}
+                    initialDimension={{ width: 400, height: 256 }}
+                  >
                     <AreaChart data={timeSeriesData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
@@ -430,8 +843,14 @@ export default function Dashboard() {
               <h2 className="text-xl font-bold text-gray-900 mb-6">Category Split</h2>
               
               {expensesByCategory.length > 0 ? (
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div className="h-64 w-full min-w-0">
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    minWidth={0}
+                    minHeight={256}
+                    initialDimension={{ width: 400, height: 256 }}
+                  >
                     <PieChart>
                       <Pie
                         data={expensesByCategory}
@@ -562,19 +981,19 @@ export default function Dashboard() {
             {totalPages > 1 && (
               <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
-                  Page {currentPage} of {totalPages}
+                  Page {visiblePage} of {totalPages}
                 </span>
                 <div className="flex gap-2">
                   <button 
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
+                    disabled={visiblePage === 1}
                     className="p-2 border border-gray-200 rounded-[5px] bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_2px_0_0_rgba(229,231,235,1)] active:shadow-none active:translate-y-[2px]"
                   >
                     <ChevronLeft size={16} strokeWidth={2.5} />
                   </button>
                   <button 
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
+                    disabled={visiblePage === totalPages}
                     className="p-2 border border-gray-200 rounded-[5px] bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_2px_0_0_rgba(229,231,235,1)] active:shadow-none active:translate-y-[2px]"
                   >
                     <ChevronRight size={16} strokeWidth={2.5} />

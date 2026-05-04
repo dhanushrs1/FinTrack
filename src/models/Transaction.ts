@@ -1,6 +1,7 @@
-import mongoose, { Document, Model, Schema } from 'mongoose';
+import mongoose, { Document, Model, Schema, Types } from 'mongoose';
 
 export interface ITransaction extends Document {
+  userId: Types.ObjectId;
   title: string;
   amount: number;
   type: 'income' | 'expense';
@@ -12,6 +13,12 @@ export interface ITransaction extends Document {
 
 const TransactionSchema: Schema<ITransaction> = new Schema(
   {
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: [true, 'Please provide a user'],
+      index: true,
+    },
     title: {
       type: String,
       required: false,
@@ -39,6 +46,8 @@ const TransactionSchema: Schema<ITransaction> = new Schema(
   },
   { timestamps: true }
 );
+
+TransactionSchema.index({ userId: 1, date: -1 });
 
 // Prevent mongoose from creating the model multiple times during API route hot-reloading
 const Transaction: Model<ITransaction> = 
